@@ -10,23 +10,13 @@
 
 #include <stdint.h>
 
-// IR receiver status codes.
-#define IR_ERROR 0
-#define IR_DONE 1
-#define IR_READY 2
-#define IR_RECEIVING 3
-#define IR_BURST 4
-
-// IR receiver state struct.
-struct IRReceiverState_t {
-	uint8_t status;
-	uint8_t cnt;
-	uint16_t data_buf;
-	uint16_t check_buf;
-    uint16_t asd[33];
+// IR receiver result status constants.
+enum IRResultStatus_t {
+    IR_DONE,
+    IR_ERROR
 };
 
-// Possible values for the INTPPS register.
+// Possible values for the INTPPS register. You can pass these to ir_setup().
 const struct {
 	uint8_t RA0;
 	uint8_t RA1;
@@ -46,7 +36,7 @@ const struct {
 	uint8_t RC5;
 	uint8_t RC6;
 	uint8_t RC7;
-} INTPPSvalues = {
+} INTPPSValues = {
 	0x00,
 	0x01,
 	0x02,
@@ -69,18 +59,23 @@ const struct {
 
 /*
  * Setup peripherals ready to receive IR packets.
+ * 
+ * @param uint8_t INT_pin One of the pins defined in INTPPSValues.
  */
-void ir_setup(uint8_t INT_pin);
+void ir_setup(const uint8_t INT_pin);
 
-/*
- * Get a const pointer to the IR receiver state struct.
+/**
+ * Register a callback function for the IR receiver.
+ * 
+ * The registered callback is called each time a key press is received.
+ * 
+ * @param cb A pointer to the callback function to call.
  */
-volatile const struct IRReceiverState_t *get_ir_state(void);
+void ir_reg_callback(void (*cb)(const uint8_t status, const uint8_t addr, const uint8_t cmd));
 
-/*
- * Mark the IR receiver ready to receive new packets.
+/**
+ * IR receiver Interrupt Service Routine.
  */
-void ir_reset(void);
-
+void ir_isr(void);
 #endif	/* IR_RECEIVER_H */
 

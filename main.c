@@ -54,6 +54,10 @@
 #include <stdint.h>
 
 #include "ir_receiver.h"
+#include "ir_lg_akb75675311.h"
+
+void ir_key_callback(const uint8_t status, const uint8_t addr, const uint8_t cmd);
+
 
 /*
  * 
@@ -62,23 +66,22 @@ int main(int argc, char** argv) {
 	ANSELC = 0x00; // PORTC = digital I/O
 	TRISCbits.TRISC0 = 0; // RC0 = Output
 	TRISCbits.TRISC1 = 1; // RC1 = Input
-	ir_setup(INTPPSvalues.RC1);
-	ir_reset();
+	ir_reg_callback(&ir_key_callback);
+	ir_setup(INTPPSValues.RC1);
 
-	while (1) {
-		PORTCbits.RC0 = 0;
-		
-		volatile const struct IRReceiverState_t *s = get_ir_state();
-		if (s->status == IR_DONE) {
-			PORTCbits.RC0 = 1;
-			for (uint16_t i = 0; i < 250; i++) {}
-			ir_reset();
-		} else if (s->status == IR_ERROR) {
-			ir_reset();
-		}
-		
-		for (uint16_t i = 0; i < 500; i++) {}
-	}
+	while (1) {}
     return (EXIT_SUCCESS);
+}
+
+void ir_key_callback(const uint8_t status, const uint8_t addr, const uint8_t cmd) {
+	if (status == IR_DONE && cmd == KC_VOL_UP) {
+		PORTCbits.RC0 = 1;
+		for (uint16_t i = 0; i < 1000; i++) {}
+		PORTCbits.RC0 = 0;
+	}
+}
+
+void __interrupt() ISR(void) {
+	ir_isr();
 }
 
