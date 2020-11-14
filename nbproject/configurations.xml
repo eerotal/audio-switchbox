@@ -6,6 +6,8 @@
                    projectFiles="true">
       <itemPath>ir_receiver.h</itemPath>
       <itemPath>ir_lg_akb75675311.h</itemPath>
+      <itemPath>hbridge.h</itemPath>
+      <itemPath>potentiometer.h</itemPath>
     </logicalFolder>
     <logicalFolder name="LinkerScript"
                    displayName="Linker Files"
@@ -16,6 +18,8 @@
                    projectFiles="true">
       <itemPath>main.c</itemPath>
       <itemPath>ir_receiver.c</itemPath>
+      <itemPath>hbridge.c</itemPath>
+      <itemPath>potentiometer.c</itemPath>
     </logicalFolder>
     <logicalFolder name="ExternalFiles"
                    displayName="Important Files"

@@ -2,6 +2,8 @@
  * File:   ir_receiver.h
  * Author: Eero Talus
  *
+ * NEC IR receiver decoder.
+ * 
  * Created on 11 October 2020, 20:19
  */
 

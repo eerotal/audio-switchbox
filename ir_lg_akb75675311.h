@@ -2,6 +2,8 @@
  * File:   ir_lg_akb75675311.h
  * Author: eero
  *
+ * IR key code definitions for an LG AKB75675311 remote.
+ * 
  * Created on 12 November 2020, 22:09
  */
 
