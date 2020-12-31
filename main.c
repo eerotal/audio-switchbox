@@ -55,19 +55,30 @@
 
 #include "ir_receiver.h"
 #include "ir_lg_akb75675311.h"
+#include "hbridge.h"
 
 void ir_key_callback(const uint8_t status, const uint8_t addr, const uint8_t cmd);
 
 
 /*
- * 
+ * Main entry point.
  */
 int main(int argc, char** argv) {
-	ANSELC = 0x00; // PORTC = digital I/O
+    // Setup the IR receiver.
+    ANSELCbits.ANSC0 = 0; // RC0 = Digital
+    ANSELCbits.ANSC1 = 0; // RC1 = Digital
 	TRISCbits.TRISC0 = 0; // RC0 = Output
 	TRISCbits.TRISC1 = 1; // RC1 = Input
 	ir_reg_callback(&ir_key_callback);
 	ir_setup(INTPPSValues.RC1);
+
+    // Setup the H-Bridge controller.
+    ANSELCbits.ANSC4 = 0; // RC4 = Digital
+    ANSELCbits.ANSC5 = 0; // RC5 = Digital
+    TRISCbits.TRISC4 = 0; // RC4 = Output
+    TRISCbits.TRISC5 = 0; // RC5 = Output
+    hbridge_setup(&PORTC, _PORTC_RC4_MASK, _PORTC_RC5_MASK);
+    hbridge_set_direction(0);
 
 	while (1) {}
     return (EXIT_SUCCESS);

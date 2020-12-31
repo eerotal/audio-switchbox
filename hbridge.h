@@ -13,16 +13,20 @@
 #include <stdint.h>
 
 /**
- * Setup the H-bridge driver.
+ * Initialize the H-Bridge.
+ *
+ * @param port      A pointer to the PORTx register.
+ * @param lpin_mask A bitmask for the left H-Bridge pin.
+ * @param rpin_mask A bitmask for the right H-Bridge pin.
  */
-void hbridge_setup(void);
+void hbridge_setup(volatile uint8_t* port, uint8_t lpin_mask, uint8_t rpin_mask);
 
 /**
- * Set the H-bridge driver output speed.
+ * Set the H-bridge driver output direction.
  *
- * @param The driver speed as an integer.
+ * @param int8_t The direction as an integer.
  */
-void hbridge_set_speed(int16_t speed);
+void hbridge_set_direction(int8_t dir);
 
 #endif	/* HBRIDGE_H */
 
