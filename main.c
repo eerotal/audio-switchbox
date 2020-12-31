@@ -56,6 +56,7 @@
 #include "ir_receiver.h"
 #include "ir_lg_akb75675311.h"
 #include "hbridge.h"
+#include "adc.h"
 
 void ir_key_callback(const uint8_t status, const uint8_t addr, const uint8_t cmd);
 
@@ -72,13 +73,18 @@ int main(int argc, char** argv) {
 	ir_reg_callback(&ir_key_callback);
 	ir_setup(INTPPSValues.RC1);
 
+    adc_setup();
+    adc_set_channel(ADCON0_CHSvalues.RC6);
+
     // Setup the H-Bridge controller.
     ANSELCbits.ANSC4 = 0; // RC4 = Digital
     ANSELCbits.ANSC5 = 0; // RC5 = Digital
+    ANSELCbits.ANSC6 = 1; // RC6 = Analog
     TRISCbits.TRISC4 = 0; // RC4 = Output
     TRISCbits.TRISC5 = 0; // RC5 = Output
+    TRISCbits.TRISC6 = 1; // RC6 = Input
     hbridge_setup(&PORTC, _PORTC_RC4_MASK, _PORTC_RC5_MASK);
-    hbridge_set_direction(0);
+    hbridge_set_direction(1);
 
 	while (1) {}
     return (EXIT_SUCCESS);
