@@ -10,7 +10,7 @@
 #ifndef IR_LG_AKB75675311_H
 #define	IR_LG_AKB75675311_H
 
-enum IRKeyCode_t {
+enum IRKeyCode {
     KC_PWR      = 0x08,
     KC_TVRAD    = 0xF0,
     KC_SEARCH   = 0x78,

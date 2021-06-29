@@ -3,169 +3,149 @@
 #include <string.h>
 
 #include "ir_receiver.h"
+#include "ring_buffer.h"
 
-// NEC timing constants.
-#define NEC_BURST 13500UL
-#define NEC_REP 11250UL
-#define NEC_HI 2250UL
-#define NEC_LO 1250UL
-#define NEC_JIT 500UL
+// IR clock constants.
+#define IR_CLOCK 8000000
+#define IR_PRESCALE 8
+#define IR_TICKS_PER_SEC (IR_CLOCK/IR_PRESCALE)
+#define IR_TICKS_PER_USEC (IR_TICKS_PER_SEC/1000000)
 
-// TIMER0 timing constants.
-#define TIMER0_FREQ 32000000UL
-#define TIMER0_PRESCALE 2048UL
-#define TIMER0_TICK (uint8_t) (((float) 1000000/TIMER0_FREQ)*TIMER0_PRESCALE)
+// NEC pulse widths in us.
+#define NEC_AGC_HIGH 9000
+#define NEC_AGC_LOW  4500
+#define NEC_PULSE    560
+#define NEC_ONE      1690
+#define NEC_ZERO     560
 
-// IR receiver state status constants.
-enum IRStateStatus_t {
-    IR_PREBURST,
-    IR_BURST,
-    IR_RECEIVING
-};
+static struct ring_buffer interval_buffer;
+static uint16_t parser_cnt = 0;
 
-// IR receiver status struct.
-volatile static struct IRReceiverState_t {
-	uint8_t status;
-	uint8_t cnt;
-	uint32_t buf;
-} ir_state = {0, 0, 0};
+uint8_t ir_match_length(const uint16_t pulse, const uint16_t target);
+uint16_t ir_ticks_to_us(const uint16_t ticks);
 
-// IR receiver result buffer.
-volatile static struct IRResult_t {
-    uint8_t status;
-    uint8_t address;
-    uint8_t command;
-} ir_buf = {0, 0, 0};
+void ir_setup(void) {
+    // Init ring buffer.
+    rb_init(&interval_buffer);
 
-static void (*ir_callback)(const uint8_t status, const uint8_t addr, const uint8_t cmd) = NULL;
+    // Setup receiver pins.
+    ANSELCbits.ANSC1 = 0; // RC1 = Digital
+    TRISCbits.TRISC1 = 1; // RC1 = Input
 
-static void ir_reset(void);
-static void ir_emit(const uint8_t status, const uint8_t addr, const uint8_t cmd);
-static void ir_emit_repeat(void);
-static void ir_emit_error(void);
-static void ir_emit_new(void);
+    // Enable interrupts.
+    INTCONbits.PEIE = 1;       // Enable peripheral interrupts.
+    INTCONbits.GIE = 1;        // Global interrupt enable.
 
-void ir_setup(const uint8_t INT_pin) {
-	// Enable external interrupts on an IO pin.
-	INTPPS = INT_pin; // Select external interrupt pin.
-	PIR0bits.INTF = 0; // Clear INT interrupt flag.
-	INTCONbits.INTEDG = 0; // INT on falling edge. (TSOP343xxx out = active low)
-	PIE0bits.INTE = 1; // External INT interrupt enable.
-	INTCONbits.PEIE = 1; // Peripheral interrupt enable.
-	INTCONbits.GIE = 1; // Global interrupt enable.
+    // Configure Timer 1.
+    T1CLK = 0b0001;            // Clock = Fosc/4 = 8 MHz.
+    T1CONbits.CKPS = 0b11;     // Prescale by 8.
+    T1CONbits.nSYNC = 0;       // Synchronize to internal phase clocks.
+    T1GCONbits.GE = 1;         // Disable gating, ie. always count.
 
-	// Enable TIMER0 for measuring NEC timing intervals.
-	TMR0H = 0xFF; // Set period buffer.
-	TMR0L = 0; // Clear counter.
-	T0CON0bits.T016BIT = 0; // 8-bit timer.
-	T0CON0bits.T0OUTPS = 0x0; // 1:1 postscaler.
-	T0CON1bits.T0CS = 0x3; // HFINTOSC clock source.
-	T0CON1bits.T0ASYNC = 1; // TIMER0 asynchronous mode.
-	T0CON1bits.T0CKPS = 0xB; // 1:2048 prescaler.
-	PIE0bits.TMR0IE = 1; // TIMER0 interrupt enable.
-	T0CON0bits.T0EN = 1; // TIMER0 enable.
-	
-	ir_state.status = IR_PREBURST;
+    // Configure Capture/Compare/PWM unit 1.
+    CCP1PPS = 0x11;            // RC1 trigger input.
+    CCP1CAPbits.CTS = 0;       // CCP1PPS trigger input.
+    CCP1CONbits.MODE = 0b0011; // Capture on every edge.
+    PIR6bits.CCP1IF = 0;       // Clear CCP1 interrupt flag.
+    PIE6bits.CCP1IE = 1;       // Enable CCP1 interrupt.
+    CCP1CONbits.EN = 1;        // Enable CCP1.
+
+    T1CONbits.ON = 1;          // Enable Timer1.
+}
+/*
+ * Check whether a pulse interval is roughly equal to a target interval.
+ */
+uint8_t ir_match_length(const uint16_t pulse, const uint16_t target) {
+    return pulse > target - 200 && pulse < target + 200;
 }
 
-void ir_reg_callback(void (*cb)(const uint8_t status, const uint8_t addr, const uint8_t cmd)) {
-	ir_callback = cb;
+/*
+ * Convert IR clock ticks to microseconds.
+ */
+uint16_t ir_ticks_to_us(const uint16_t ticks) {
+    return ticks/IR_TICKS_PER_USEC;
 }
 
-static void ir_reset(void) {
-	ir_state.status = IR_PREBURST;
-	ir_state.cnt = 0;
-	ir_state.buf = 0;
+/*
+ * Get a pulse interval and the corresponding pin state from the IR ring buffer.
+ */
+uint8_t ir_get_pulse(uint8_t* pin_state, uint16_t* interval, uint8_t idx) {
+    if (rb_get(&interval_buffer, interval, idx) == RB_NO_DATA) { return 0; }
+    *pin_state = (*interval >> 15);
+    *interval &= ~(1 << 15);
+    return 1;
 }
 
-static void ir_emit(const uint8_t status, const uint8_t addr, const uint8_t cmd) {
-	ir_buf.status = status;
-	ir_buf.address = addr;
-	ir_buf.command = cmd;
+uint8_t ir_parse_next(uint8_t* data) {
+    uint32_t tmp = 0;
 
-	if (ir_callback != NULL) { (*ir_callback)(status, addr, cmd); }
-}
+    for (uint8_t offset = 0; ; offset++) {
+        uint16_t interval = 0;
+        uint8_t pin_state = 0;
 
-static void ir_emit_repeat(void) {
-	ir_emit(ir_buf.status, ir_buf.address, ir_buf.command);
-}
+        // Match AGC high period.
+        if (!ir_get_pulse(&pin_state, &interval, offset)) { return 0; }
+        if (!(pin_state == 1 && ir_match_length(interval, NEC_AGC_HIGH))) { continue; }
 
-static void ir_emit_error(void) {
-	ir_emit(IR_ERROR, 0, 0);
-}
+        // Match AGC low period.
+        if (!ir_get_pulse(&pin_state, &interval, offset + 1)) { return 0; }
+        if (!(pin_state == 0 && ir_match_length(interval, NEC_AGC_LOW))) { continue; }
 
-static void ir_emit_new(void) {
-	uint8_t addr = (uint8_t) (ir_state.buf & 0xFF);
-	uint8_t addr_chk = (uint8_t) (((~ir_state.buf) >> 8) & 0xFF);
-	uint8_t cmd = (uint8_t) ((ir_state.buf >> 16) & 0xFF);
-	uint8_t cmd_chk = (uint8_t) (((~ir_state.buf) >> 24) & 0xFF);
+        // Read received data.
+        uint8_t i;
+        for (i = 0; i < 2*(4*8); i += 2) {
+            // Match byte high period.
+            if (!ir_get_pulse(&pin_state, &interval, offset + 2 + i)) { return 0; }
+            if (!(pin_state == 1 && ir_match_length(interval, NEC_PULSE))) { break; }
 
-	if (cmd == cmd_chk && addr == addr_chk) {
-		// Check bytes match actual data => Emit result.
-		ir_emit(IR_DONE, addr, cmd);
-	} else {
-		// Check byte mismatch => Emit error.
-		ir_emit_error();
-	}
+            // Match byte low period.
+            if (!ir_get_pulse(&pin_state, &interval, offset + 3 + i)) { return 0; }
+            if (pin_state == 0) {
+                if (ir_match_length(interval, NEC_ONE)) {
+                    // Bit is 1.
+                    tmp >>= 1;
+                    tmp |= (1UL << 31);
+                } else if (ir_match_length(interval, NEC_ZERO)) {
+                    // Bit is 0.
+                    tmp >>= 1;
+                } else {
+                    // Bit is invalid.
+                    break;
+                }
+            } else {
+                // Bit is invalid.
+                break;
+            }
+        }
+
+        // Break if a whole message was received.
+        if (i == 2*(4*8)) { break; }
+    }
+
+    // Pop the read values from the IR ring buffer.
+    uint16_t dummy = 0;
+    for (uint8_t i = 0; i < 2 + 2*(4*8); i++) { rb_pop(&interval_buffer, &dummy); }
+
+    // Check that the inverted and non-inverted data bytes match.
+    if (((~tmp & 0xff000000) >> 8) == (tmp & 0x00ff0000)) {
+        *data = (tmp & 0x00ff0000) >> 16;
+    }
+
+    return 1;
 }
 
 void ir_isr(void) {
-	if (PIE0bits.INTE) {
-		if (PIR0bits.INTF) {
-			// Calculate the time difference between successive edges
-			// and clear the timer counter.
-			uint16_t dt = TMR0L*TIMER0_TICK;
-			TMR0L = 0;
+    if (PIE6bits.CCP1IE && PIR6bits.CCP1IF) {
+        uint16_t interval = ir_ticks_to_us(CCPR1);
+        if ((interval & (1U << 15)) == 0) {
+            interval |= (uint16_t) (PORTCbits.RC1 << 15);
+        } else {
+            interval = 0;
+        }
+        rb_push(&interval_buffer, interval, RB_OVERFLOW_DISCARD_END);
 
-			if (ir_state.status == IR_PREBURST) {
-				ir_state.status = IR_BURST;
-			} else if (ir_state.status == IR_BURST) {
-				if (dt >= NEC_BURST - NEC_JIT && dt <= NEC_BURST + NEC_JIT) {
-					// Full burst complete => Receive packet.
-					ir_state.status = IR_RECEIVING;
-				} else if (dt >= NEC_REP - NEC_JIT && dt <= NEC_REP + NEC_JIT) {
-					// Repetition burst complete => Use last received packet.
-					ir_emit_repeat();
-					ir_state.status = IR_PREBURST;
-				} else {
-					// Invalid burst length => Cause an error because this
-					// means we missed some data. This is done to make sure
-					// possible future repetitions don't accidentally repeat
-					// the previous packet if a new one was missed. Don't
-					// ir_reset() here (which would set ir_state.status =
-					// IR_PREBURST) so that we can try to catch the next edge
-					// immediately.
-					ir_emit_error();
-				}
-			} else if (ir_state.status == IR_RECEIVING) {
-				// Shift next bit into the receive buffer.
-				ir_state.buf >>= 1;
-				if (dt >= NEC_HI - NEC_JIT && dt <= NEC_HI + NEC_JIT) {
-					ir_state.buf |=  0x80000000;
-				} else if (!(dt >= NEC_LO - NEC_JIT && dt <= NEC_LO + NEC_JIT)) {
-					// Bit length error.
-					ir_emit_error();
-					ir_reset();
-				}
-
-				if (++ir_state.cnt == 32) {
-					// Packet stops after the 33rd bit.
-					ir_emit_new();
-					ir_reset();
-				}
-			}
-			PIR0bits.INTF = 0; // Clear the INT interrupt flag.
-			PIR0bits.TMR0IF = 0; // Clear the TMR0IF interrupt flag.
-		}
-		
-		if (PIR0bits.TMR0IF) {
-			if (ir_state.status == IR_RECEIVING || ir_state.status == IR_BURST) {
-				// Burst or bit length error.
-				ir_emit_error();
-				ir_reset();
-			}
-			PIR0bits.INTF = 0; // Clear the INT interrupt flag.
-			PIR0bits.TMR0IF = 0; // Clear the TMR0IF interrupt flag.
-		}
-	}
+        // Clear the interrupt flag and Timer 1 counter.
+        PIR6bits.CCP1IF = 0;
+        TMR1 = 0;
+    }
 }

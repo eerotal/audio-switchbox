@@ -55,50 +55,43 @@
 
 #include "ir_receiver.h"
 #include "ir_lg_akb75675311.h"
-#include "hbridge.h"
+#include "pot.h"
 #include "adc.h"
-
-void ir_key_callback(const uint8_t status, const uint8_t addr, const uint8_t cmd);
-
 
 /*
  * Main entry point.
  */
 int main(int argc, char** argv) {
-    // Setup the IR receiver.
     ANSELCbits.ANSC0 = 0; // RC0 = Digital
-    ANSELCbits.ANSC1 = 0; // RC1 = Digital
 	TRISCbits.TRISC0 = 0; // RC0 = Output
-	TRISCbits.TRISC1 = 1; // RC1 = Input
-	ir_reg_callback(&ir_key_callback);
-	ir_setup(INTPPSValues.RC1);
+	
+	ir_setup();
 
-    adc_setup();
-    adc_set_channel(ADCON0_CHSvalues.RC6);
+    /*adc_setup();
+    adc_set_channel(ADCON0_CHSvalues.RC6);*/
 
     // Setup the H-Bridge controller.
-    ANSELCbits.ANSC4 = 0; // RC4 = Digital
+    /*ANSELCbits.ANSC4 = 0; // RC4 = Digital
     ANSELCbits.ANSC5 = 0; // RC5 = Digital
     ANSELCbits.ANSC6 = 1; // RC6 = Analog
     TRISCbits.TRISC4 = 0; // RC4 = Output
     TRISCbits.TRISC5 = 0; // RC5 = Output
     TRISCbits.TRISC6 = 1; // RC6 = Input
-    hbridge_setup(&PORTC, _PORTC_RC4_MASK, _PORTC_RC5_MASK);
-    hbridge_set_direction(1);
+    pot_setup(&PORTC, _PORTC_RC4_MASK, _PORTC_RC5_MASK);
+    pot_set_direction(-1);*/
 
-	while (1) {}
+	while (1) {
+        volatile uint8_t test = 0;
+        uint8_t data = 0;
+        if (ir_parse_next(&data)) {
+            test = data;
+        }
+    }
     return (EXIT_SUCCESS);
 }
 
-void ir_key_callback(const uint8_t status, const uint8_t addr, const uint8_t cmd) {
-	if (status == IR_DONE && cmd == KC_VOL_UP) {
-		PORTCbits.RC0 = 1;
-		for (uint16_t i = 0; i < 1000; i++) {}
-		PORTCbits.RC0 = 0;
-	}
-}
 
 void __interrupt() ISR(void) {
-	ir_isr();
+    ir_isr();
 }
 
