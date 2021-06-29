@@ -55,7 +55,6 @@
 
 #include "ir_receiver.h"
 #include "ir_lg_akb75675311.h"
-#include "pot.h"
 #include "adc.h"
 
 /*

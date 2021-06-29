@@ -10,6 +10,9 @@
 #ifndef IR_RECEIVER_H
 #define	IR_RECEIVER_H
 
+#define IR_ERROR 0
+#define IR_OK 1
+
 #include <stdint.h>
 
 void ir_setup(void);

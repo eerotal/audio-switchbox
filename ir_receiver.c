@@ -12,11 +12,12 @@
 #define IR_TICKS_PER_USEC (IR_TICKS_PER_SEC/1000000)
 
 // NEC pulse widths in us.
-#define NEC_AGC_HIGH 9000
-#define NEC_AGC_LOW  4500
-#define NEC_PULSE    560
-#define NEC_ONE      1690
-#define NEC_ZERO     560
+#define NEC_AGC_START  9000
+#define NEC_AGC_DATA   4500
+#define NEC_AGC_REPEAT 2250
+#define NEC_DATA_HIGH  560
+#define NEC_DATA_ONE   1690
+#define NEC_DATA_ZERO  560
 
 static struct ring_buffer interval_buffer;
 static uint16_t parser_cnt = 0;
@@ -70,10 +71,10 @@ uint16_t ir_ticks_to_us(const uint16_t ticks) {
  * Get a pulse interval and the corresponding pin state from the IR ring buffer.
  */
 uint8_t ir_get_pulse(uint8_t* pin_state, uint16_t* interval, uint8_t idx) {
-    if (rb_get(&interval_buffer, interval, idx) == RB_NO_DATA) { return 0; }
+    if (rb_get(&interval_buffer, interval, idx) == RB_NO_DATA) { return IR_ERROR; }
     *pin_state = (*interval >> 15);
     *interval &= ~(1 << 15);
-    return 1;
+    return IR_OK;
 }
 
 uint8_t ir_parse_next(uint8_t* data) {
@@ -84,28 +85,42 @@ uint8_t ir_parse_next(uint8_t* data) {
         uint8_t pin_state = 0;
 
         // Match AGC high period.
-        if (!ir_get_pulse(&pin_state, &interval, offset)) { return 0; }
-        if (!(pin_state == 1 && ir_match_length(interval, NEC_AGC_HIGH))) { continue; }
+        if (ir_get_pulse(&pin_state, &interval, offset) != IR_OK) {
+            return IR_ERROR;
+        }
+        if (!(pin_state == 1 && ir_match_length(interval, NEC_AGC_START))) {
+            continue;
+        }
 
         // Match AGC low period.
-        if (!ir_get_pulse(&pin_state, &interval, offset + 1)) { return 0; }
-        if (!(pin_state == 0 && ir_match_length(interval, NEC_AGC_LOW))) { continue; }
+        if (ir_get_pulse(&pin_state, &interval, offset + 1) != IR_OK) { 
+            return IR_ERROR;
+        }
+        if (!(pin_state == 0 && ir_match_length(interval, NEC_AGC_DATA))) {
+            continue;
+        }
 
         // Read received data.
         uint8_t i;
         for (i = 0; i < 2*(4*8); i += 2) {
             // Match byte high period.
-            if (!ir_get_pulse(&pin_state, &interval, offset + 2 + i)) { return 0; }
-            if (!(pin_state == 1 && ir_match_length(interval, NEC_PULSE))) { break; }
+            if (ir_get_pulse(&pin_state, &interval, offset + 2 + i) != IR_OK) {
+                return IR_ERROR;
+            }
+            if (!(pin_state == 1 && ir_match_length(interval, NEC_DATA_HIGH))) {
+                break;
+            }
 
             // Match byte low period.
-            if (!ir_get_pulse(&pin_state, &interval, offset + 3 + i)) { return 0; }
+            if (ir_get_pulse(&pin_state, &interval, offset + 3 + i) != IR_OK) {
+                return IR_ERROR;
+            }
             if (pin_state == 0) {
-                if (ir_match_length(interval, NEC_ONE)) {
+                if (ir_match_length(interval, NEC_DATA_ONE)) {
                     // Bit is 1.
                     tmp >>= 1;
                     tmp |= (1UL << 31);
-                } else if (ir_match_length(interval, NEC_ZERO)) {
+                } else if (ir_match_length(interval, NEC_DATA_ZERO)) {
                     // Bit is 0.
                     tmp >>= 1;
                 } else {
@@ -124,14 +139,18 @@ uint8_t ir_parse_next(uint8_t* data) {
 
     // Pop the read values from the IR ring buffer.
     uint16_t dummy = 0;
-    for (uint8_t i = 0; i < 2 + 2*(4*8); i++) { rb_pop(&interval_buffer, &dummy); }
+    for (uint8_t i = 0; i < 2 + 2*(4*8); i++) {
+        rb_pop(&interval_buffer, &dummy);
+    }
 
     // Check that the inverted and non-inverted data bytes match.
     if (((~tmp & 0xff000000) >> 8) == (tmp & 0x00ff0000)) {
         *data = (tmp & 0x00ff0000) >> 16;
+    } else {
+        return IR_ERROR;
     }
 
-    return 1;
+    return IR_OK;
 }
 
 void ir_isr(void) {
