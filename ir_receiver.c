@@ -19,8 +19,12 @@
 #define NEC_DATA_ONE   1690
 #define NEC_DATA_ZERO  560
 
+// NEC packet constants.
+#define NEC_DATA_BYTES 4
+#define NEC_DATA_BITS (8*NEC_DATA_BYTES)
+
 static struct ring_buffer interval_buffer;
-static uint16_t parser_cnt = 0;
+static uint8_t last_command = 0;
 
 uint8_t ir_match_length(const uint16_t pulse, const uint16_t target);
 uint16_t ir_ticks_to_us(const uint16_t ticks);
@@ -71,51 +75,77 @@ uint16_t ir_ticks_to_us(const uint16_t ticks) {
  * Get a pulse interval and the corresponding pin state from the IR ring buffer.
  */
 uint8_t ir_get_pulse(uint8_t* pin_state, uint16_t* interval, uint8_t idx) {
-    if (rb_get(&interval_buffer, interval, idx) == RB_NO_DATA) { return IR_ERROR; }
+    if (rb_get(&interval_buffer, interval, idx) == RB_NO_DATA) {
+        return IR_ERROR;
+    }
     *pin_state = (*interval >> 15);
     *interval &= ~(1 << 15);
     return IR_OK;
 }
 
-uint8_t ir_parse_next(uint8_t* data) {
+uint8_t ir_parse_next(uint8_t* command) {
     uint32_t tmp = 0;
 
-    for (uint8_t offset = 0; ; offset++) {
+    uint8_t offset;
+    for (offset = 0; ; offset++) {
         uint16_t interval = 0;
-        uint8_t pin_state = 0;
+        uint8_t state = 0;
 
-        // Match AGC high period.
-        if (ir_get_pulse(&pin_state, &interval, offset) != IR_OK) {
+        // Match AGC frame header high period.
+        if (ir_get_pulse(&state, &interval, offset) != IR_OK) {
+            // No data in buffer.
             return IR_ERROR;
         }
-        if (!(pin_state == 1 && ir_match_length(interval, NEC_AGC_START))) {
+        if (!(state == 1 && ir_match_length(interval, NEC_AGC_START))) {
+            // Invalid signal state or length.
             continue;
         }
 
-        // Match AGC low period.
-        if (ir_get_pulse(&pin_state, &interval, offset + 1) != IR_OK) { 
+        // Match AGC frame header low period.
+        if (ir_get_pulse(&state, &interval, offset + 1) != IR_OK) {
+            // No data in buffer.
             return IR_ERROR;
         }
-        if (!(pin_state == 0 && ir_match_length(interval, NEC_AGC_DATA))) {
+        if (state != 0) {
+            // Invalid signal state.
             continue;
         }
 
-        // Read received data.
+        // Match either the repeat or data AGC header.
+        if (ir_match_length(interval, NEC_AGC_REPEAT)) {
+            // If there is no last_command this is not a valid repeat frame.
+            if (last_command == 0) { continue; }
+
+            // A repeat code was received => Return the last command.
+            *command = last_command;
+
+            // Pop the AGC header values from the IR ring buffer.
+            rb_pop(&interval_buffer, NULL);
+            rb_pop(&interval_buffer, NULL);
+
+            return IR_OK;
+        } else if (!ir_match_length(interval, NEC_AGC_DATA)) {
+            // Invalid signal length.
+            continue;
+        }
+
+        // AGC frame header OK => Read received data.
         uint8_t i;
-        for (i = 0; i < 2*(4*8); i += 2) {
-            // Match byte high period.
-            if (ir_get_pulse(&pin_state, &interval, offset + 2 + i) != IR_OK) {
+        for (i = 0; i < 2*NEC_DATA_BITS; i += 2) {
+            // Match data byte high period.
+            if (ir_get_pulse(&state, &interval, offset + 2 + i) != IR_OK) {
                 return IR_ERROR;
             }
-            if (!(pin_state == 1 && ir_match_length(interval, NEC_DATA_HIGH))) {
+            if (!(state == 1 && ir_match_length(interval, NEC_DATA_HIGH))) {
                 break;
             }
 
-            // Match byte low period.
-            if (ir_get_pulse(&pin_state, &interval, offset + 3 + i) != IR_OK) {
+            // Match data byte low period.
+            if (ir_get_pulse(&state, &interval, offset + 3 + i) != IR_OK) {
+                // No data in buffer.
                 return IR_ERROR;
             }
-            if (pin_state == 0) {
+            if (state == 0) {
                 if (ir_match_length(interval, NEC_DATA_ONE)) {
                     // Bit is 1.
                     tmp >>= 1;
@@ -124,29 +154,32 @@ uint8_t ir_parse_next(uint8_t* data) {
                     // Bit is 0.
                     tmp >>= 1;
                 } else {
-                    // Bit is invalid.
+                    // Invalid signal length.
                     break;
                 }
             } else {
-                // Bit is invalid.
+                // Invalid signal state.
                 break;
             }
         }
 
-        // Break if a whole message was received.
-        if (i == 2*(4*8)) { break; }
+        // If a complete frame was received we are done.
+        if (i == 2*NEC_DATA_BITS) { break; }
     }
 
-    // Pop the read values from the IR ring buffer.
-    uint16_t dummy = 0;
-    for (uint8_t i = 0; i < 2 + 2*(4*8); i++) {
-        rb_pop(&interval_buffer, &dummy);
+    // Pop the read values from the IR ring buffer. The number of values to pop
+    // is Offset + AGC header length (2) + Data length (2*NEC_DATA_BITS).
+    for (uint8_t i = 0; i < offset + 2 + 2*NEC_DATA_BITS; i++) {
+        rb_pop(&interval_buffer, NULL);
     }
 
-    // Check that the inverted and non-inverted data bytes match.
+    // Check that the inverted and non-inverted data bytes match. Let's skip
+    // the address bytes for now.
     if (((~tmp & 0xff000000) >> 8) == (tmp & 0x00ff0000)) {
-        *data = (tmp & 0x00ff0000) >> 16;
+        *command = (tmp & 0x00ff0000) >> 16;
+        last_command = *command;
     } else {
+        // Check byte mismatch.
         return IR_ERROR;
     }
 

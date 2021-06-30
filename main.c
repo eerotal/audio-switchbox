@@ -63,6 +63,7 @@
 int main(int argc, char** argv) {
     ANSELCbits.ANSC0 = 0; // RC0 = Digital
 	TRISCbits.TRISC0 = 0; // RC0 = Output
+    PORTCbits.RC0 = 1;
 	
 	ir_setup();
 
@@ -80,10 +81,14 @@ int main(int argc, char** argv) {
     pot_set_direction(-1);*/
 
 	while (1) {
-        volatile uint8_t test = 0;
+        for (uint16_t i = 0; i < 1000; i++);
+        PORTCbits.RC0 = 0;
+
         uint8_t data = 0;
-        if (ir_parse_next(&data)) {
-            test = data;
+        if (ir_parse_next(&data) == IR_OK) {
+            if (data == 0x11) {
+                PORTCbits.RC0 = 1;
+            }
         }
     }
     return (EXIT_SUCCESS);
