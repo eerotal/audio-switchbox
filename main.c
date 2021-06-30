@@ -55,45 +55,31 @@
 
 #include "ir_receiver.h"
 #include "ir_lg_akb75675311.h"
+#include "potentiometer.h"
 #include "adc.h"
 
 /*
  * Main entry point.
  */
 int main(int argc, char** argv) {
-    ANSELCbits.ANSC0 = 0; // RC0 = Digital
-	TRISCbits.TRISC0 = 0; // RC0 = Output
-    PORTCbits.RC0 = 1;
-	
+    adc_setup();
 	ir_setup();
-
-    /*adc_setup();
-    adc_set_channel(ADCON0_CHSvalues.RC6);*/
-
-    // Setup the H-Bridge controller.
-    /*ANSELCbits.ANSC4 = 0; // RC4 = Digital
-    ANSELCbits.ANSC5 = 0; // RC5 = Digital
-    ANSELCbits.ANSC6 = 1; // RC6 = Analog
-    TRISCbits.TRISC4 = 0; // RC4 = Output
-    TRISCbits.TRISC5 = 0; // RC5 = Output
-    TRISCbits.TRISC6 = 1; // RC6 = Input
-    pot_setup(&PORTC, _PORTC_RC4_MASK, _PORTC_RC5_MASK);
-    pot_set_direction(-1);*/
+    pot_setup();
 
 	while (1) {
-        for (uint16_t i = 0; i < 1000; i++);
-        PORTCbits.RC0 = 0;
-
         uint8_t data = 0;
         if (ir_parse_next(&data) == IR_OK) {
-            if (data == 0x11) {
-                PORTCbits.RC0 = 1;
+            if (data == 0x57) {
+                pot_volume_up();
+            } else if (data == 0x58) {
+                pot_volume_down();
             }
         }
+
+        pot_update();
     }
     return (EXIT_SUCCESS);
 }
-
 
 void __interrupt() ISR(void) {
     ir_isr();

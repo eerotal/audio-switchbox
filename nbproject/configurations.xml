@@ -8,6 +8,7 @@
       <itemPath>ir_lg_akb75675311.h</itemPath>
       <itemPath>adc.h</itemPath>
       <itemPath>ring_buffer.h</itemPath>
+      <itemPath>potentiometer.h</itemPath>
     </logicalFolder>
     <logicalFolder name="LinkerScript"
                    displayName="Linker Files"
@@ -20,6 +21,7 @@
       <itemPath>ir_receiver.c</itemPath>
       <itemPath>adc.c</itemPath>
       <itemPath>ring_buffer.c</itemPath>
+      <itemPath>potentiometer.c</itemPath>
     </logicalFolder>
     <logicalFolder name="ExternalFiles"
                    displayName="Important Files"

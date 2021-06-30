@@ -65,72 +65,9 @@ const struct {
 };
 
 /**
- * Possible values for the ADCON1[7] ADFM bit.
- * 
- * @see http://ww1.microchip.com/downloads/en/devicedoc/40001889a.pdf page 236
- */
-const struct {
-    uint8_t RJUST;
-    uint8_t LJUST;
-} ADCON1_ADFMvalues = {
-    1,
-    0
-};
-
-/**
- * Possible values for the ADCON1[6:4] ADCS bits.
- * 
- * @see http://ww1.microchip.com/downloads/en/devicedoc/40001889a.pdf page 236
- */
-const struct {
-    uint8_t ADCRC;
-    uint8_t FOSC64;
-    uint8_t FOSC16;
-    uint8_t FOSC4;
-    uint8_t FOSC32;
-    uint8_t FOSC8;
-    uint8_t FOSC2;
-} ADCON1_ADCSvalues = {
-    0b111,
-    0b110,
-    0b101,
-    0b100,
-    // 0b011 = Also ADCRC
-    0b010,
-    0b001,
-    0b000
-};
-
-/**
- * Possible values for the ADCON1[1:0] ADPREF bits.
- * 
- * @see http://ww1.microchip.com/downloads/en/devicedoc/40001889a.pdf page 236
- */
-const struct {
-    uint8_t FVR;
-    uint8_t EXT;
-    uint8_t VDD;
-} ADCON1_ADPREFvalues = {
-    0b11,
-    0b10,
-    // 0b01 = Reserved
-    0b00
-};
-
-/**
  * Setup the ADC driver.
  */
 void adc_setup(void);
-
-/**
- * Enable the ADC peripheral and start conversion.
- */
-void adc_enable(void) ;
-
-/**
- * Disable the ADC peripheral.
- */
-void adc_disable(void);
 
 /**
  * Select the ADC input channel.
@@ -139,33 +76,7 @@ void adc_disable(void);
  */
 void adc_set_channel(uint8_t chs);
 
-/**
- * Select the ADC result format.
- * 
- * @param adfm uint8_t One of the values defined in ADCON1_ADFMvalues.
- */
-void adc_set_format(uint8_t adfm);
-
-/**
- * Select the ADC clock source.
- * 
- * @param adcs uint8_t One of the values defined in ADCON1_ADCSvalues.
- */
-void adc_set_clock(uint8_t adcs);
-
-/**
- * Select the positive ADC reference voltage source.
- * 
- * @param adpref uint8_t One of the values defined in ADCON1_ADPREFvalues.
- */
-void adc_set_pos_ref(uint8_t adpref);
-
-/**
- * Get the latest ADC conversion result.
- * 
- * @return The ADC conversion result.
- */
-uint16_t adc_get_result(void);
+uint8_t adc_read_high(void);
 
 #endif	/* ADC_H */
 
