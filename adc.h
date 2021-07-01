@@ -76,7 +76,7 @@ void adc_setup(void);
  */
 void adc_set_channel(uint8_t chs);
 
-uint8_t adc_read_high(void);
+uint16_t adc_read(void);
 
 #endif	/* ADC_H */
 

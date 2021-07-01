@@ -5,10 +5,11 @@
 #include "potentiometer.h"
 #include "adc.h"
 
-#define VOLUME_TICK 10
-#define POT_DEADZONE 1
+#define VOLUME_TICK 8
+#define POT_DEADZONE 2
+#define UINT10_MAX 1024UL
 
-static uint8_t setpoint = 0;
+static uint16_t setpoint = 0;
 
 void pot_setup(void) {
     // Setup pins.
@@ -23,10 +24,10 @@ void pot_setup(void) {
 }
 
 void pot_volume_up(void) {
-    if ((int16_t) setpoint + VOLUME_TICK <= UINT8_MAX) {
+    if ((int16_t) setpoint + VOLUME_TICK <= UINT10_MAX) {
         setpoint += VOLUME_TICK;
     } else {
-        setpoint = UINT8_MAX;
+        setpoint = UINT10_MAX;
     }
 }
 
@@ -40,17 +41,20 @@ void pot_volume_down(void) {
 
 void pot_update(void) {
     adc_set_channel(ADCON0_CHSvalues.RC3);
-    uint8_t result = adc_read_high();
+    uint16_t result = adc_read();
 
     if (abs((int16_t) setpoint - (int16_t) result) > POT_DEADZONE) {
         if (result < setpoint) {
+            // Motor clockwise.
             LATCbits.LATC4 = 1;
             LATCbits.LATC5 = 0;
         } else {
+            // Motor counterclockwise.
             LATCbits.LATC4 = 0;
             LATCbits.LATC5 = 1;
         }
     } else {
+        // Motor off.
         LATCbits.LATC4 = 0;
         LATCbits.LATC5 = 0;
     }
