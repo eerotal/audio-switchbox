@@ -9,6 +9,7 @@
       <itemPath>adc.h</itemPath>
       <itemPath>ring_buffer.h</itemPath>
       <itemPath>potentiometer.h</itemPath>
+      <itemPath>peripherals.h</itemPath>
     </logicalFolder>
     <logicalFolder name="LinkerScript"
                    displayName="Linker Files"
@@ -39,7 +40,7 @@
         <targetPluginBoard></targetPluginBoard>
         <platformTool>pk4hybrid</platformTool>
         <languageToolchain>XC8</languageToolchain>
-        <languageToolchainVersion>2.32</languageToolchainVersion>
+        <languageToolchainVersion>2.30</languageToolchainVersion>
         <platform>2</platform>
       </toolsSet>
       <packs>
@@ -64,7 +65,6 @@
       </compileType>
       <makeCustomizationType>
         <makeCustomizationPreStepEnabled>false</makeCustomizationPreStepEnabled>
-        <makeUseCleanTarget>false</makeUseCleanTarget>
         <makeCustomizationPreStep></makeCustomizationPreStep>
         <makeCustomizationPostStepEnabled>false</makeCustomizationPostStepEnabled>
         <makeCustomizationPostStep></makeCustomizationPostStep>
@@ -201,7 +201,7 @@
         <property key="memories.programmemory" value="true"/>
         <property key="memories.programmemory.ranges" value="0-fff"/>
         <property key="memories.rww" value="true"/>
-        <property key="poweroptions.powerenable" value="false"/>
+        <property key="poweroptions.powerenable" value="true"/>
         <property key="programmerToGoFilePath"
                   value="/home/eero/MPLABXProjects/audio-switchbox/debug/default/AudioSwitchBox_ptg"/>
         <property key="programmerToGoImageName" value="AudioSwitchBox_ptg"/>

@@ -48,40 +48,47 @@
 // #pragma config statements should precede project file includes.
 // Use project enums instead of #define for ON and OFF.
 
-#include <xc.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdint.h>
-
 #include "ir_receiver.h"
 #include "ir_lg_akb75675311.h"
 #include "potentiometer.h"
 #include "adc.h"
 
+#include <xc.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+
+#define _XTAL_FREQ 32000000UL
+
 /*
  * Main entry point.
  */
 int main(int argc, char** argv) {
+	ANSELC = 0x00; // PORTC = digital I/O
+	TRISCbits.TRISC0 = 0; // RC0 = Output
+	TRISCbits.TRISC1 = 1; // RC1 = Input
+
     adc_setup();
 	ir_setup();
     pot_setup();
-
+	
 	while (1) {
-        uint8_t data = 0;
-        if (ir_parse_next(&data) == IR_OK) {
-            if (data == 0x57) {
-                pot_volume_up();
-            } else if (data == 0x58) {
-                pot_volume_down();
-            }
-        }
-
-        pot_update();
+		const IREvent* tmp = ir_get_event();
+		if (tmp->cmd == KC_VOL_UP) {
+			PORTCbits.RC0 = 1;
+			__delay_ms(10);
+			PORTCbits.RC0 = 0;
+		}
+		
+		__delay_ms(10);
     }
+
     return (EXIT_SUCCESS);
 }
 
 void __interrupt() ISR(void) {
-    ir_isr();
+	if (PIR0bits.IOCIF) {
+		ir_isr();
+	}
 }
 

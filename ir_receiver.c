@@ -1,203 +1,187 @@
-#include <stdint.h>
+#include "ir_receiver.h"
+
 #include <pic16f15344.h>
+#include <stdint.h>
 #include <string.h>
 
-#include "ir_receiver.h"
-#include "ring_buffer.h"
+// NEC timing constants (us).
+#define NEC_AGC_HI        9000UL
+#define NEC_AGC_LO        4500UL
+#define NEC_AGC_LO_REPEAT 2250UL
+#define NEC_BIT_HI        2250UL
+#define NEC_BIT_LO        1125UL
+#define NEC_JIT           500UL
 
-// IR clock constants.
-#define IR_CLOCK 8000000
-#define IR_PRESCALE 8
-#define IR_TICKS_PER_SEC (IR_CLOCK/IR_PRESCALE)
-#define IR_TICKS_PER_USEC (IR_TICKS_PER_SEC/1000000)
+#define NEC_WITHIN(value, target) (value >= target - NEC_JIT/2 && value <= target + NEC_JIT/2)
 
-// NEC pulse widths in us.
-#define NEC_AGC_START  9000
-#define NEC_AGC_DATA   4500
-#define NEC_AGC_REPEAT 2250
-#define NEC_DATA_HIGH  560
-#define NEC_DATA_ONE   1690
-#define NEC_DATA_ZERO  560
+// TIMER0 timing constants.
+#define TMR_FREQ 32000000UL // Hz
+#define TMR_PRESCALE 256UL
+#define TMR_TICK (uint8_t) (((float) 1000000/TMR_FREQ)*TMR_PRESCALE) // us
 
-// NEC packet constants.
-#define NEC_DATA_BYTES 4
-#define NEC_DATA_BITS (8*NEC_DATA_BYTES)
+typedef enum {
+	INIT,
+	AGCH,
+	AGCL,
+	DATA
+} IRState;
 
-static struct ring_buffer interval_buffer;
-static uint8_t last_command = 0;
+typedef struct {
+	IRState state;
+	uint32_t data;
+	uint8_t idx;
+} IRData;
 
-uint8_t ir_match_length(const uint16_t pulse, const uint16_t target);
-uint16_t ir_ticks_to_us(const uint16_t ticks);
+static IRData ir_data = {INIT, 0, 0};
+static IREvent ir_event = {0};
+
+static void ir_store(uint32_t data);
+static void ir_discard(void);
+static void ir_repeat(void);
+static void ir_fsm(void);
+
+static uint16_t us_to_tmr0_ticks(uint32_t us);
+static uint32_t tmr0_ticks_to_us(uint16_t tick);
+static uint16_t tmr0_read(void);
+static void tmr0_write(uint16_t x);
 
 void ir_setup(void) {
-    // Init ring buffer.
-    rb_init(&interval_buffer);
+	// Configure Interrupt-on-Change peripheral.
+	TRISCbits.TRISC1 = 1; // RC1 = Input.
+	IOCCPbits.IOCCP1 = 1; // Rising IOC on RC1.
+	IOCCNbits.IOCCN1 = 1; // Falling IOC on RC1.
+	IOCCFbits.IOCCF1 = 0; // Clear RC1 IOC status flag.
+	PIR0bits.IOCIF = 0;   // Clear IOC interrupt flag.
+	PIE0bits.IOCIE = 1;   // Enable IOC.
+	INTCONbits.GIE = 1;
+	INTCONbits.PEIE = 1;
 
-    // Setup receiver pins.
-    ANSELCbits.ANSC1 = 0; // RC1 = Digital
-    TRISCbits.TRISC1 = 1; // RC1 = Input
-
-    // Enable interrupts.
-    INTCONbits.PEIE = 1;       // Enable peripheral interrupts.
-    INTCONbits.GIE = 1;        // Global interrupt enable.
-
-    // Configure Timer 1.
-    T1CLK = 0b0001;            // Clock = Fosc/4 = 8 MHz.
-    T1CONbits.CKPS = 0b11;     // Prescale by 8.
-    T1CONbits.nSYNC = 0;       // Synchronize to internal phase clocks.
-    T1GCONbits.GE = 1;         // Disable gating, ie. always count.
-
-    // Configure Capture/Compare/PWM unit 1.
-    CCP1PPS = 0x11;            // RC1 trigger input.
-    CCP1CAPbits.CTS = 0;       // CCP1PPS trigger input.
-    CCP1CONbits.MODE = 0b0011; // Capture on every edge.
-    PIR6bits.CCP1IF = 0;       // Clear CCP1 interrupt flag.
-    PIE6bits.CCP1IE = 1;       // Enable CCP1 interrupt.
-    CCP1CONbits.EN = 1;        // Enable CCP1.
-
-    T1CONbits.ON = 1;          // Enable Timer1.
-}
-/*
- * Check whether a pulse interval is roughly equal to a target interval.
- */
-uint8_t ir_match_length(const uint16_t pulse, const uint16_t target) {
-    return pulse > target - 200 && pulse < target + 200;
+	// Configure TIMER0 peripheral.
+	TMR0H = 0;
+	TMR0L = 0;
+	T0CON0bits.T016BIT = 1; // 16-bit timer.
+	T0CON1bits.T0CS = 0x3; // HFINTOSC clock source (32 MHz).
+	T0CON1bits.T0ASYNC = 1; // TIMER0 asynchronous mode.
+	T0CON1bits.T0CKPS = 0b1000; // 1:256 prescaler.
+	T0CON0bits.T0OUTPS = 0x0; // 1:1 postscaler.
+	T0CON0bits.T0EN = 1; // TIMER0 enable.
 }
 
-/*
- * Convert IR clock ticks to microseconds.
- */
-uint16_t ir_ticks_to_us(const uint16_t ticks) {
-    return ticks/IR_TICKS_PER_USEC;
+static uint16_t us_to_tmr0_ticks(uint32_t us) {
+	return (uint16_t) us/TMR_TICK;
 }
 
-/*
- * Get a pulse interval and the corresponding pin state from the IR ring buffer.
- */
-uint8_t ir_get_pulse(uint8_t* pin_state, uint16_t* interval, uint8_t idx) {
-    if (rb_get(&interval_buffer, interval, idx) == RB_NO_DATA) {
-        return IR_ERROR;
-    }
-    *pin_state = (*interval >> 15);
-    *interval &= ~(1 << 15);
-    return IR_OK;
+static uint32_t tmr0_ticks_to_us(uint16_t tick) {
+	return (uint32_t) tick*TMR_TICK;
 }
 
-uint8_t ir_parse_next(uint8_t* command) {
-    uint32_t tmp = 0;
+static uint16_t tmr0_read(void) {
+	uint8_t l = TMR0L;
+	uint8_t h = TMR0H;
+	
+	return ((uint16_t) l)|((uint16_t) h << 8);
+}
 
-    uint8_t offset;
-    for (offset = 0; ; offset++) {
-        uint16_t interval = 0;
-        uint8_t state = 0;
+static void tmr0_write(uint16_t x) {
+	TMR0H = (x >> 8);
+	TMR0L = (x & 0xFF);
+}
 
-        // Match AGC frame header high period.
-        if (ir_get_pulse(&state, &interval, offset) != IR_OK) {
-            // No data in buffer.
-            return IR_ERROR;
-        }
-        if (!(state == 1 && ir_match_length(interval, NEC_AGC_START))) {
-            // Invalid signal state or length.
-            continue;
-        }
+static void ir_store(uint32_t data) {
+	uint8_t addr = data & 0xFF;
+	uint8_t addr_n = ~((data >> 8) & 0xFF);
+	uint8_t cmd = (data >> 16) & 0xFF;
+	uint8_t cmd_n = ~((data >> 24) & 0xFF);
 
-        // Match AGC frame header low period.
-        if (ir_get_pulse(&state, &interval, offset + 1) != IR_OK) {
-            // No data in buffer.
-            return IR_ERROR;
-        }
-        if (state != 0) {
-            // Invalid signal state.
-            continue;
-        }
+	if (cmd == cmd_n && addr == addr_n) {
+		ir_event.addr = addr;
+		ir_event.cmd = cmd;
+		ir_event.pending = 1;
+		ir_event.valid = 1;
+	}
+}
 
-        // Match either the repeat or data AGC header.
-        if (ir_match_length(interval, NEC_AGC_REPEAT)) {
-            // If there is no last_command this is not a valid repeat frame.
-            if (last_command == 0) { continue; }
+static void ir_discard(void) {
+	ir_event.valid = 0;
+}
 
-            // A repeat code was received => Return the last command.
-            *command = last_command;
+static void ir_repeat(void) {
+	if (ir_event.valid) {
+		ir_event.pending = 1;
+	}
+}
 
-            // Pop the AGC header values from the IR ring buffer.
-            rb_pop(&interval_buffer, NULL);
-            rb_pop(&interval_buffer, NULL);
+static void ir_fsm() {
+	uint8_t in = (~PORTCbits.RC1 & 0x01);
+	uint32_t us = tmr0_ticks_to_us(tmr0_read());
 
-            return IR_OK;
-        } else if (!ir_match_length(interval, NEC_AGC_DATA)) {
-            // Invalid signal length.
-            continue;
-        }
+	// State machine.
+	switch (ir_data.state) {
+		case INIT:
+			if (in) {
+				tmr0_write(0);
+				ir_data.state = AGCH;
+			}
+			break;
+		case AGCH:
+			if (NEC_WITHIN(us, NEC_AGC_HI)) {
+				tmr0_write(0);
+				ir_data.state = AGCL;
+			} else {
+				ir_discard();
+				ir_data.state = INIT;
+			}
+			break;
+		case AGCL:
+			if (NEC_WITHIN(us, NEC_AGC_LO_REPEAT)) {
+				ir_repeat();
+				ir_data.state = INIT;
+			} else if (NEC_WITHIN(us, NEC_AGC_LO)) {
+				tmr0_write(0);
+				ir_data.idx = 0;
+				ir_data.state = DATA;
+			} else {
+				ir_discard();
+				ir_data.state = INIT;
+			}
+			break;
+		case DATA:
+			if (ir_data.idx == 32) {
+				ir_store(ir_data.data);
+				ir_data.state = INIT;
+			} else if (in) {
+				if (NEC_WITHIN(us, NEC_BIT_HI)) {
+					tmr0_write(0);
+					ir_data.idx += 1;
+					ir_data.data = (ir_data.data >> 1)|((uint32_t) 1 << 31);
+				} else if (NEC_WITHIN(us, NEC_BIT_LO)) {
+					tmr0_write(0);
+					ir_data.idx += 1;
+					ir_data.data = (ir_data.data >> 1);
+				} else {
+					ir_discard();
+					ir_data.state = INIT;
+				}
+			}
+			break;
+		default:
+			ir_data.state = INIT;
+			break;
+	}
+}
 
-        // AGC frame header OK => Read received data.
-        uint8_t i;
-        for (i = 0; i < 2*NEC_DATA_BITS; i += 2) {
-            // Match data byte high period.
-            if (ir_get_pulse(&state, &interval, offset + 2 + i) != IR_OK) {
-                return IR_ERROR;
-            }
-            if (!(state == 1 && ir_match_length(interval, NEC_DATA_HIGH))) {
-                break;
-            }
-
-            // Match data byte low period.
-            if (ir_get_pulse(&state, &interval, offset + 3 + i) != IR_OK) {
-                // No data in buffer.
-                return IR_ERROR;
-            }
-            if (state == 0) {
-                if (ir_match_length(interval, NEC_DATA_ONE)) {
-                    // Bit is 1.
-                    tmp >>= 1;
-                    tmp |= (1UL << 31);
-                } else if (ir_match_length(interval, NEC_DATA_ZERO)) {
-                    // Bit is 0.
-                    tmp >>= 1;
-                } else {
-                    // Invalid signal length.
-                    break;
-                }
-            } else {
-                // Invalid signal state.
-                break;
-            }
-        }
-
-        // If a complete frame was received we are done.
-        if (i == 2*NEC_DATA_BITS) { break; }
-    }
-
-    // Pop the read values from the IR ring buffer. The number of values to pop
-    // is Offset + AGC header length (2) + Data length (2*NEC_DATA_BITS).
-    for (uint8_t i = 0; i < offset + 2 + 2*NEC_DATA_BITS; i++) {
-        rb_pop(&interval_buffer, NULL);
-    }
-
-    // Check that the inverted and non-inverted data bytes match. Let's skip
-    // the address bytes for now.
-    if (((~tmp & 0xff000000) >> 8) == (tmp & 0x00ff0000)) {
-        *command = (tmp & 0x00ff0000) >> 16;
-        last_command = *command;
-    } else {
-        // Check byte mismatch.
-        return IR_ERROR;
-    }
-
-    return IR_OK;
+const IREvent* ir_get_event(void) {
+	if (ir_event.pending) {
+		ir_event.pending = 0;
+		return &ir_event;
+	} else {
+		return NULL;
+	}
 }
 
 void ir_isr(void) {
-    if (PIE6bits.CCP1IE && PIR6bits.CCP1IF) {
-        uint16_t interval = ir_ticks_to_us(CCPR1);
-        if ((interval & (1U << 15)) == 0) {
-            interval |= (uint16_t) (PORTCbits.RC1 << 15);
-        } else {
-            interval = 0;
-        }
-        rb_push(&interval_buffer, interval, RB_OVERFLOW_DISCARD_END);
-
-        // Clear the interrupt flag and Timer 1 counter.
-        PIR6bits.CCP1IF = 0;
-        TMR1 = 0;
-    }
+	if (IOCCFbits.IOCCF1) {
+		ir_fsm();
+		IOCCFbits.IOCCF1 = 0;
+	}
 }

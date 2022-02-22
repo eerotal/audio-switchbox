@@ -10,13 +10,27 @@
 #ifndef IR_RECEIVER_H
 #define	IR_RECEIVER_H
 
-#define IR_ERROR 0
-#define IR_OK 1
-
 #include <stdint.h>
 
+typedef struct {
+    uint8_t addr;
+    uint8_t cmd;
+    uint8_t valid;
+    uint8_t pending;
+} IREvent;
+
+/*
+ * Setup peripherals ready to receive IR packets.
+ */
 void ir_setup(void);
-uint8_t ir_parse_next(uint8_t* data);
+
+/**
+ * Read the latest IR event data.
+ * 
+ * @return Pointer to an IREvent struct or NULL if there are no pending events.
+ */
+const IREvent* ir_get_event(void);
+
 void ir_isr(void);
 
 #endif	/* IR_RECEIVER_H */
