@@ -2,8 +2,8 @@
 #include <stdint.h>
 #include <pic16f15344.h>
 
-#include "potentiometer.h"
-#include "adc.h"
+#include "drivers/inc/potentiometer.h"
+#include "drivers/inc/adc.h"
 
 #define VOLUME_TICK 8
 #define POT_DEADZONE 2

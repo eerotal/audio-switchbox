@@ -24,13 +24,20 @@ typedef struct {
  */
 void ir_setup(void);
 
-/**
- * Read the latest IR event data.
+/*
+ * Get the latest received IR event.
  * 
- * @return Pointer to an IREvent struct or NULL if there are no pending events.
+ * @param IREvent* event Destination event buffer.
+ * 
+ * @return int8_t 0 on success, -1 on failure.
  */
-const IREvent* ir_get_event(void);
+int8_t ir_get_event(IREvent* event);
 
+/*
+ * IR driver interrupt handler.
+ * 
+ * This must be called on all Interrupt-On-Change interrupts.
+ */
 void ir_isr(void);
 
 #endif	/* IR_RECEIVER_H */

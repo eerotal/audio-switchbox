@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include <pic16f15344.h>
 
-#include "adc.h"
+#include "drivers/inc/adc.h"
 
 void adc_setup(void) {
     // Enable ADC.

@@ -4,12 +4,11 @@
     <logicalFolder name="HeaderFiles"
                    displayName="Header Files"
                    projectFiles="true">
-      <itemPath>ir_receiver.h</itemPath>
-      <itemPath>ir_lg_akb75675311.h</itemPath>
-      <itemPath>adc.h</itemPath>
-      <itemPath>ring_buffer.h</itemPath>
-      <itemPath>potentiometer.h</itemPath>
-      <itemPath>peripherals.h</itemPath>
+      <itemPath>drivers/inc/adc.h</itemPath>
+      <itemPath>drivers/inc/ir_lg_akb75675311.h</itemPath>
+      <itemPath>drivers/inc/ir_receiver.h</itemPath>
+      <itemPath>drivers/inc/potentiometer.h</itemPath>
+      <itemPath>drivers/inc/timer.h</itemPath>
     </logicalFolder>
     <logicalFolder name="LinkerScript"
                    displayName="Linker Files"
@@ -18,11 +17,11 @@
     <logicalFolder name="SourceFiles"
                    displayName="Source Files"
                    projectFiles="true">
-      <itemPath>main.c</itemPath>
-      <itemPath>ir_receiver.c</itemPath>
-      <itemPath>adc.c</itemPath>
-      <itemPath>ring_buffer.c</itemPath>
-      <itemPath>potentiometer.c</itemPath>
+      <itemPath>core/src/main.c</itemPath>
+      <itemPath>drivers/src/adc.c</itemPath>
+      <itemPath>drivers/src/potentiometer.c</itemPath>
+      <itemPath>drivers/src/ir_receiver.c</itemPath>
+      <itemPath>drivers/src/timer.c</itemPath>
     </logicalFolder>
     <logicalFolder name="ExternalFiles"
                    displayName="Important Files"
@@ -80,7 +79,7 @@
         <property key="default-char-type" value="true"/>
         <property key="define-macros" value=""/>
         <property key="disable-optimizations" value="true"/>
-        <property key="extra-include-directories" value=""/>
+        <property key="extra-include-directories" value="."/>
         <property key="favor-optimization-for" value="-speed,+space"/>
         <property key="garbage-collect-data" value="true"/>
         <property key="garbage-collect-functions" value="true"/>
@@ -168,7 +167,6 @@
         <property key="stack-size-main" value="auto"/>
         <property key="stack-type" value="compiled"/>
         <property key="user-pack-device-support" value=""/>
-        <property key="wpo-lto" value="false"/>
       </XC8-config-global>
       <pk4hybrid>
         <property key="AutoSelectMemRanges" value="auto"/>
@@ -186,7 +184,6 @@
         <property key="communication.interface.jtag" value="2wire"/>
         <property key="communication.speed" value="${communication.speed.default}"/>
         <property key="debugoptions.useswbreakpoints" value="true"/>
-        <property key="freeze.timers" value="false"/>
         <property key="memories.aux" value="false"/>
         <property key="memories.bootflash" value="true"/>
         <property key="memories.configurationmemory" value="true"/>
@@ -200,10 +197,7 @@
                   value="${memories.instruction.ram.ranges}"/>
         <property key="memories.programmemory" value="true"/>
         <property key="memories.programmemory.ranges" value="0-fff"/>
-        <property key="memories.rww" value="true"/>
         <property key="poweroptions.powerenable" value="true"/>
-        <property key="programmerToGoFilePath"
-                  value="/home/eero/MPLABXProjects/audio-switchbox/debug/default/AudioSwitchBox_ptg"/>
         <property key="programmerToGoImageName" value="AudioSwitchBox_ptg"/>
         <property key="programoptions.donoteraseauxmem" value="false"/>
         <property key="programoptions.eraseb4program" value="true"/>
@@ -225,6 +219,7 @@
         <property key="programoptions.programcalmem" value="false"/>
         <property key="programoptions.programuserotp" value="false"/>
         <property key="programoptions.testmodeentrymethod" value="VDDFirst"/>
+        <property key="programoptionsedbg.eraseb4program" value="true"/>
         <property key="ptgProgramImage" value="true"/>
         <property key="ptgSendImage" value="true"/>
         <property key="toolpack.updateoptions"

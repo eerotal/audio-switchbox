@@ -48,10 +48,11 @@
 // #pragma config statements should precede project file includes.
 // Use project enums instead of #define for ON and OFF.
 
-#include "ir_receiver.h"
-#include "ir_lg_akb75675311.h"
-#include "potentiometer.h"
-#include "adc.h"
+#include "drivers/inc/ir_receiver.h"
+#include "drivers/inc/ir_lg_akb75675311.h"
+#include "drivers/inc/potentiometer.h"
+#include "drivers/inc/adc.h"
+#include "drivers/inc/timer.h"
 
 #include <xc.h>
 #include <stdio.h>
@@ -68,16 +69,19 @@ int main(int argc, char** argv) {
 	TRISCbits.TRISC0 = 0; // RC0 = Output
 	TRISCbits.TRISC1 = 1; // RC1 = Input
 
+	tmr_setup();
     adc_setup();
 	ir_setup();
     pot_setup();
 	
 	while (1) {
-		const IREvent* tmp = ir_get_event();
-		if (tmp->cmd == KC_VOL_UP) {
-			PORTCbits.RC0 = 1;
-			__delay_ms(10);
-			PORTCbits.RC0 = 0;
+		IREvent tmp;
+		if (ir_get_event(&tmp) != -1) {
+			if (tmp.cmd == KC_VOL_UP) {
+				PORTCbits.RC0 = 1;
+				__delay_ms(10);
+				PORTCbits.RC0 = 0;
+			}
 		}
 		
 		__delay_ms(10);
